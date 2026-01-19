@@ -100,15 +100,23 @@ func run(args []string) int {
 		modelName = f.model
 	}
 
-	// Parse output mode.
-	outputMode, err := output.ParseMode(f.outputMode)
-	if err != nil {
-		// If flag is provided but invalid, use config default.
-		if f.outputMode == "" {
-			outputMode, _ = output.ParseMode(cfg.OutputMode)
-		} else {
+	// Parse output mode: flag takes precedence over config.
+	var outputMode output.Mode
+	if f.outputMode != "" {
+		// Flag explicitly provided - parse it.
+		var err error
+		outputMode, err = output.ParseMode(f.outputMode)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "qcmd: invalid output mode: %s\n", f.outputMode)
 			return exitUserError
+		}
+	} else {
+		// No flag provided - use config value (or default to auto).
+		var err error
+		outputMode, err = output.ParseMode(cfg.OutputMode)
+		if err != nil {
+			// Config has invalid value, fall back to auto.
+			outputMode = output.ModeAuto
 		}
 	}
 
@@ -180,6 +188,12 @@ func run(args []string) int {
 
 	// Sanitize command.
 	command := sanitize.Sanitize(resp.Command)
+
+	// Check for empty command after sanitization.
+	if strings.TrimSpace(command) == "" {
+		fmt.Fprintln(os.Stderr, "qcmd: LLM returned empty response")
+		return exitUserError
+	}
 
 	// Check for error sentinel.
 	if isError, errMsg := sanitize.CheckErrorSentinel(command); isError {
@@ -289,11 +303,9 @@ func getQuery(f *flags, cfg *config.Config) (string, error) {
 	}
 
 	// Priority 3: Interactive editor
+	// Note: Editor uses background context (no timeout) - timeout is for API calls only.
 	ed := editor.NewEditor(cfg.Editor.Editor)
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout())
-	defer cancel()
-
-	query, err := ed.GetInput(ctx)
+	query, err := ed.GetInput(context.Background())
 	if err != nil {
 		return "", fmt.Errorf("getting input from editor: %w", err)
 	}

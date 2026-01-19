@@ -16,7 +16,7 @@ const (
 	DefaultOpenRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
 
 	// DefaultOpenRouterModel is the default model for OpenRouter.
-	DefaultOpenRouterModel = "anthropic/claude-4-haiku"
+	DefaultOpenRouterModel = "anthropic/claude-haiku-4-5-20251001"
 
 	// DefaultHTTPReferer is the default referer header for OpenRouter.
 	DefaultHTTPReferer = "https://github.com/user/qcmd"

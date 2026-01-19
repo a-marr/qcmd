@@ -44,8 +44,8 @@ func TestAnthropicBackend_GenerateCommand_Success(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Errorf("failed to decode request body: %v", err)
 		}
-		if reqBody.Model != "claude-4-haiku" {
-			t.Errorf("expected model claude-4-haiku, got %s", reqBody.Model)
+		if reqBody.Model != "claude-haiku-4-5-20251001" {
+			t.Errorf("expected model claude-haiku-4-5-20251001, got %s", reqBody.Model)
 		}
 		if reqBody.MaxTokens != 512 {
 			t.Errorf("expected max_tokens 512, got %d", reqBody.MaxTokens)
@@ -59,7 +59,7 @@ func TestAnthropicBackend_GenerateCommand_Success(t *testing.T) {
 			ID:    "msg_123",
 			Type:  "message",
 			Role:  "assistant",
-			Model: "claude-4-haiku",
+			Model: "claude-haiku-4-5-20251001",
 			Content: []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
@@ -94,8 +94,8 @@ func TestAnthropicBackend_GenerateCommand_Success(t *testing.T) {
 	if resp.Command != "ls -la" {
 		t.Errorf("expected command 'ls -la', got %q", resp.Command)
 	}
-	if resp.Model != "claude-4-haiku" {
-		t.Errorf("expected model 'claude-4-haiku', got %q", resp.Model)
+	if resp.Model != "claude-haiku-4-5-20251001" {
+		t.Errorf("expected model 'claude-haiku-4-5-20251001', got %q", resp.Model)
 	}
 	if resp.TokensUsed != 15 {
 		t.Errorf("expected 15 tokens used, got %d", resp.TokensUsed)
@@ -121,7 +121,7 @@ func TestAnthropicBackend_GenerateCommand_WithContext(t *testing.T) {
 		}
 
 		resp := anthropicResponse{
-			Model: "claude-4-haiku",
+			Model: "claude-haiku-4-5-20251001",
 			Content: []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
@@ -219,7 +219,7 @@ func TestAnthropicBackend_GenerateCommand_EmptyQuery(t *testing.T) {
 func TestAnthropicBackend_GenerateCommand_EmptyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := anthropicResponse{
-			Model:   "claude-4-haiku",
+			Model:   "claude-haiku-4-5-20251001",
 			Content: []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
@@ -634,14 +634,14 @@ func TestOpenRouterBackend_GenerateCommand_Success(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Errorf("failed to decode request body: %v", err)
 		}
-		if reqBody.Model != "anthropic/claude-4-haiku" {
-			t.Errorf("expected model anthropic/claude-4-haiku, got %s", reqBody.Model)
+		if reqBody.Model != "anthropic/claude-haiku-4-5-20251001" {
+			t.Errorf("expected model anthropic/claude-haiku-4-5-20251001, got %s", reqBody.Model)
 		}
 
 		// Send response
 		resp := openrouterResponse{
 			ID:    "gen-123",
-			Model: "anthropic/claude-4-haiku",
+			Model: "anthropic/claude-haiku-4-5-20251001",
 			Choices: []struct {
 				Index   int `json:"index"`
 				Message struct {
@@ -684,8 +684,8 @@ func TestOpenRouterBackend_GenerateCommand_Success(t *testing.T) {
 	if resp.Command != "ls -la" {
 		t.Errorf("expected command 'ls -la', got %q", resp.Command)
 	}
-	if resp.Model != "anthropic/claude-4-haiku" {
-		t.Errorf("expected model 'anthropic/claude-4-haiku', got %q", resp.Model)
+	if resp.Model != "anthropic/claude-haiku-4-5-20251001" {
+		t.Errorf("expected model 'anthropic/claude-haiku-4-5-20251001', got %q", resp.Model)
 	}
 	if resp.TokensUsed != 20 {
 		t.Errorf("expected 20 tokens used, got %d", resp.TokensUsed)
@@ -703,7 +703,7 @@ func TestOpenRouterBackend_GenerateCommand_CustomHeaders(t *testing.T) {
 		}
 
 		resp := openrouterResponse{
-			Model: "anthropic/claude-4-haiku",
+			Model: "anthropic/claude-haiku-4-5-20251001",
 			Choices: []struct {
 				Index   int `json:"index"`
 				Message struct {
@@ -763,7 +763,7 @@ func TestOpenRouterBackend_GenerateCommand_EmptyQuery(t *testing.T) {
 func TestOpenRouterBackend_GenerateCommand_EmptyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := openrouterResponse{
-			Model:   "anthropic/claude-4-haiku",
+			Model:   "anthropic/claude-haiku-4-5-20251001",
 			Choices: []struct {
 				Index   int `json:"index"`
 				Message struct {
@@ -977,7 +977,7 @@ func TestBackendInterfaceCompliance(t *testing.T) {
 func TestAnthropicBackend_WhitespaceOnlyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := anthropicResponse{
-			Model: "claude-4-haiku",
+			Model: "claude-haiku-4-5-20251001",
 			Content: []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
@@ -1040,7 +1040,7 @@ func TestOpenAIBackend_WhitespaceOnlyResponse(t *testing.T) {
 func TestOpenRouterBackend_WhitespaceOnlyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := openrouterResponse{
-			Model: "anthropic/claude-4-haiku",
+			Model: "anthropic/claude-haiku-4-5-20251001",
 			Choices: []struct {
 				Index   int `json:"index"`
 				Message struct {
@@ -1074,7 +1074,7 @@ func TestOpenRouterBackend_WhitespaceOnlyResponse(t *testing.T) {
 func TestAnthropicBackend_ResponseTrimming(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := anthropicResponse{
-			Model: "claude-4-haiku",
+			Model: "claude-haiku-4-5-20251001",
 			Content: []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`

@@ -32,6 +32,36 @@ func TestSanitize(t *testing.T) {
 			expected: "find . -name '*.go'",
 		},
 		{
+			name:     "code fence shell-session",
+			input:    "```shell-session\nls -la\n```",
+			expected: "ls -la",
+		},
+		{
+			name:     "code fence console",
+			input:    "```console\necho hello\n```",
+			expected: "echo hello",
+		},
+		{
+			name:     "code fence zsh",
+			input:    "```zsh\necho $SHELL\n```",
+			expected: "echo $SHELL",
+		},
+		{
+			name:     "code fence fish",
+			input:    "```fish\nset -x PATH /usr/bin\n```",
+			expected: "set -x PATH /usr/bin",
+		},
+		{
+			name:     "code fence powershell",
+			input:    "```powershell\nGet-Process\n```",
+			expected: "Get-Process",
+		},
+		{
+			name:     "code fence language with number",
+			input:    "```python3\nprint('hi')\n```",
+			expected: "print('hi')",
+		},
+		{
 			name:     "inline backticks",
 			input:    "`ls -la`",
 			expected: "ls -la",

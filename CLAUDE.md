@@ -60,6 +60,7 @@ make lint           # golangci-lint
 
 ## Git Commit Rules
 
+- **NEVER stage, commit, or push changes unless explicitly directed by the user**
 - Never include "Co-Authored-By" or any AI/assistant attribution in commits
 - Write clear, conventional commit messages (feat:, fix:, docs:, refactor:, etc.)
 

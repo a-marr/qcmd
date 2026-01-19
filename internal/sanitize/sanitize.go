@@ -7,8 +7,8 @@ import (
 )
 
 // codeFenceRegex matches markdown code fences with optional language specifier.
-// Matches patterns like: ```bash\n...\n``` or ```\n...\n```
-var codeFenceRegex = regexp.MustCompile("(?s)^\\s*```[a-zA-Z]*\\n?(.*?)\\n?```\\s*$")
+// Matches patterns like: ```bash\n...\n```, ```shell-session\n...\n```, or ```\n...\n```
+var codeFenceRegex = regexp.MustCompile("(?s)^\\s*```[a-zA-Z0-9_-]*\\n?(.*?)\\n?```\\s*$")
 
 // inlineBacktickRegex matches content wrapped in single backticks.
 var inlineBacktickRegex = regexp.MustCompile("^`([^`]+)`$")
