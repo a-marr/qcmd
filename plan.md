@@ -73,9 +73,9 @@ qcmd/
 │   │   ├── output.go               # Output mode router
 │   │   ├── clipboard.go            # Cross-platform clipboard
 │   │   └── output_test.go
-│   └── context/
-│       ├── context.go              # Gather shell context (pwd, shell, etc.)
-│       └── context_test.go
+│   └── shellctx/
+│       ├── shellctx.go             # Gather shell context (pwd, shell, etc.)
+│       └── shellctx_test.go
 ├── shell/
 │   └── qcmd.zsh                    # Zsh function wrapper for ZLE integration
 ├── testdata/
@@ -333,18 +333,18 @@ All patterns are anchored to prevent false positives on partial matches.
 
 | Pattern | Description |
 |---------|-------------|
-| `rm\s+(-[rf]+\s+)*(/\|~\|\$HOME)(\s\|$)` | Recursive delete on root/home |
-| `rm\s+(-[rf]+\s+)*/\*(\s\|$)` | Delete everything in root |
-| `rm\s+(-[rf]+\s+)*\*(\s\|$)` | Delete all in current dir with force |
-| `dd\s+.*of=/dev/[sh]d[a-z]*(\s\|$)` | Direct disk write |
+| `rm\s+(-[rf]+\s+)*(\/|~|\$HOME)(\s|$)` | Recursive delete on root/home |
+| `rm\s+(-[rf]+\s+)*\/\*(\s|$)` | Delete everything in root |
+| `rm\s+(-[rf]+\s+)*\*(\s|$)` | Delete all in current dir with force |
+| `dd\s+.*of=/dev/[sh]d[a-z]*(\s|$)` | Direct disk write |
 | `mkfs\.[a-z0-9]+\s+/dev/` | Filesystem format |
 | `>\s*/dev/[sh]d[a-z]` | Redirect to disk device |
 | `:\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:` | Fork bomb pattern |
-| `chmod\s+(-R\s+)*(000\|777)\s+/(\s\|$)` | Dangerous permission change on root |
-| `chown\s+(-R\s+).*\s+/(\s\|$)` | Recursive chown on root |
-| `mv\s+/\s+` | Move root directory |
+| `chmod\s+(-R\s+)*(000|777)\s+\/(\s|$)` | Dangerous permission change on root |
+| `chown\s+(-R\s+).*\s+\/(\s|$)` | Recursive chown on root |
+| `mv\s+\/\s+` | Move root directory |
 | `cat\s*/dev/u?random\s*>\s*/dev/sd` | Random to disk |
-| `>\s*/etc/(passwd\|shadow)` | Overwrite auth files |
+| `>\s*/etc/(passwd|shadow)` | Overwrite auth files |
 
 **CAUTION (warns via stderr but allows, exit code 0):**
 
@@ -359,6 +359,47 @@ All patterns are anchored to prevent false positives on partial matches.
 | `chown\s+-R\s+` | Recursive ownership change |
 | `pkill\s+` | Kill processes by pattern |
 | `killall\s+` | Kill processes by name |
+
+#### Nested Command Detection
+
+Commands can be obfuscated via shell wrappers. The safety checker must extract and check inner commands:
+
+```go
+// Shell wrapper patterns that contain nested commands
+var shellWrappers = []string{
+    `sudo\s+(.+)`,           // sudo <cmd>
+    `sh\s+-c\s+["'](.+)["']`,    // sh -c "<cmd>"
+    `bash\s+-c\s+["'](.+)["']`,  // bash -c "<cmd>"
+    `zsh\s+-c\s+["'](.+)["']`,   // zsh -c "<cmd>"
+    `eval\s+["']?(.+)["']?`,     // eval <cmd>
+}
+
+func (c *Checker) Check(cmd string) CheckResult {
+    // 1. Check the full command against all patterns
+    result := c.checkPatterns(cmd)
+    if result.Level == Danger {
+        return result
+    }
+
+    // 2. Extract and check nested commands
+    for _, wrapper := range shellWrappers {
+        if inner := extractInnerCommand(cmd, wrapper); inner != "" {
+            innerResult := c.checkPatterns(inner)
+            if innerResult.Level > result.Level {
+                result = innerResult
+                result.Pattern = fmt.Sprintf("%s (via wrapper)", result.Pattern)
+            }
+        }
+    }
+
+    return result
+}
+```
+
+This catches:
+- `sudo rm -rf /` → extracts `rm -rf /` → Danger
+- `bash -c "rm -rf /"` → extracts `rm -rf /` → Danger
+- `sh -c 'chmod 777 /'` → extracts `chmod 777 /` → Danger
 
 #### Test Cases (Critical)
 
@@ -379,6 +420,14 @@ All patterns are anchored to prevent false positives on partial matches.
 {"dd if=/dev/zero of=/dev/sda", Danger},
 {"mkfs.ext4 /dev/sda1", Danger},
 {"chmod -R 777 /", Danger},
+
+// Nested/wrapped commands - Must be Danger
+{"sudo rm -rf /", Danger},             // sudo + dangerous
+{"sudo rm -rf ~", Danger},             // sudo + dangerous
+{"sh -c \"rm -rf /\"", Danger},        // shell wrapper
+{"bash -c 'rm -rf /'", Danger},        // bash wrapper
+{"bash -c 'chmod 777 /'", Danger},     // nested chmod
+{"eval 'rm -rf /'", Danger},           // eval wrapper
 ```
 
 ### 2.5 Sanitizer (`internal/sanitize/`)
@@ -613,10 +662,46 @@ Flags:
   --version              Print version and exit
   --help                 Print help and exit
 
+Input Precedence (highest to lowest):
+  1. --query-file (if provided, file is read)
+  2. --query (if provided and no --query-file)
+  3. Interactive editor (if neither flag provided)
+
+If both --query and --query-file are provided, --query-file takes precedence
+and --query is ignored (with a warning to stderr if --verbose is set).
+
 Commands:
   config                 Show current configuration
   config init            Create default config file with comments
   backends               List available backends and their status
+```
+
+#### `config init` Behavior
+
+```go
+func initConfig() error {
+    configDir := getConfigDir() // ~/.config/qcmd or $XDG_CONFIG_HOME/qcmd
+
+    // Create directory with secure permissions if it doesn't exist
+    if err := os.MkdirAll(configDir, 0700); err != nil {
+        return fmt.Errorf("failed to create config directory: %w", err)
+    }
+
+    configPath := filepath.Join(configDir, "config.toml")
+
+    // Don't overwrite existing config
+    if _, err := os.Stat(configPath); err == nil {
+        return fmt.Errorf("config file already exists: %s", configPath)
+    }
+
+    // Write default config with 0600 permissions
+    if err := os.WriteFile(configPath, []byte(defaultConfigTOML), 0600); err != nil {
+        return fmt.Errorf("failed to write config file: %w", err)
+    }
+
+    fmt.Fprintf(os.Stderr, "Created config file: %s\n", configPath)
+    return nil
+}
 ```
 
 ### 3.2 Exit Codes
@@ -775,6 +860,13 @@ func TestSafetyChecker(t *testing.T) {
         {"rm with path starting with slash", "rm -rf /var/log/myapp", Safe},
         {"echo with slash", "echo /", Safe},
         {"cat etc file", "cat /etc/hosts", Safe},
+
+        // Nested/wrapped commands
+        {"sudo rm rf root", "sudo rm -rf /", Danger},
+        {"bash wrapper danger", "bash -c 'rm -rf /'", Danger},
+        {"sh wrapper danger", `sh -c "rm -rf /"`, Danger},
+        {"eval danger", "eval 'rm -rf /'", Danger},
+        {"sudo safe cmd", "sudo apt update", Caution},  // sudo is caution, inner cmd is safe
     }
 
     checker := NewChecker()
@@ -961,38 +1053,38 @@ jobs:
 ## 7. Implementation Phases
 
 ### Phase 1: Foundation
-- [ ] Project scaffold (go.mod, directory structure)
-- [ ] Config package (TOML loading, defaults, env override)
-- [ ] Editor package (temp file, $EDITOR invocation)
+- [x] ~~Project scaffold (go.mod, directory structure)~~
+- [x] ~~Config package (TOML loading, defaults, env override)~~
+- [x] ~~Editor package (temp file, $EDITOR invocation)~~
 - [ ] Basic CLI structure (flags, help, version)
 - [ ] Input validation
 
 ### Phase 2: Core Functionality
-- [ ] Backend interface definition
-- [ ] Anthropic backend implementation
-- [ ] OpenAI backend implementation
-- [ ] OpenRouter backend implementation
-- [ ] Sanitizer package (with multi-line preservation)
-- [ ] Error sentinel detection
+- [x] ~~Backend interface definition~~
+- [x] ~~Anthropic backend implementation~~
+- [x] ~~OpenAI backend implementation~~
+- [x] ~~OpenRouter backend implementation~~
+- [x] ~~Sanitizer package (with multi-line preservation)~~
+- [x] ~~Error sentinel detection~~
 
 ### Phase 3: Safety & Output
-- [ ] Safety checker (patterns, normalization, levels)
-- [ ] Output router (modes, explicit selection)
-- [ ] Clipboard detection (cross-platform)
-- [ ] Exit code handling
+- [x] ~~Safety checker (patterns, normalization, levels)~~
+- [x] ~~Output router (modes, explicit selection)~~
+- [x] ~~Clipboard detection (cross-platform)~~
+- [x] ~~Exit code handling~~
 
 ### Phase 4: Integration
-- [ ] Zsh shell wrapper (`qcmd.zsh`)
-- [ ] End-to-end flow testing
-- [ ] Error handling refinement
-- [ ] Stderr/stdout separation verification
+- [x] ~~Zsh shell wrapper (`qcmd.zsh`)~~
+- [x] ~~End-to-end flow testing~~
+- [x] ~~Error handling refinement~~
+- [x] ~~Stderr/stdout separation verification~~
 
 ### Phase 5: Polish
-- [ ] Comprehensive unit tests
-- [ ] Safety checker test coverage
-- [ ] Documentation (README, --help)
-- [ ] Makefile, CI/CD
-- [ ] Release binaries
+- [x] ~~Comprehensive unit tests~~
+- [x] ~~Safety checker test coverage~~
+- [x] ~~Documentation (README, --help)~~
+- [x] ~~Makefile, CI/CD~~
+- [x] ~~Release binaries~~
 
 ---
 
@@ -1026,6 +1118,259 @@ require (
 ```
 
 Minimal dependencies by design. Go stdlib handles HTTP, JSON, regex, exec.
+
+---
+
+## 10. Agent Delegation
+
+This section defines how implementation work is distributed across parallel agents for maximum efficiency.
+
+### 10.1 Dependency Graph
+
+```
+                    ┌─────────────────────┐
+                    │  Agent 1: Foundation │
+                    │  (sequential first)  │
+                    └──────────┬──────────┘
+                               │
+         ┌─────────────────────┼─────────────────────┐
+         │                     │                     │
+         ▼                     ▼                     ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│ Agent 2:        │  │ Agent 3:        │  │ Agent 4:        │
+│ Backends        │  │ Safety+Sanitize │  │ Output          │
+└────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+         │                     │                     │
+         │           ┌─────────────────┐             │
+         │           │ Agent 5:        │             │
+         │           │ Editor+Shellctx │             │
+         │           └────────┬────────┘             │
+         │                     │                     │
+         └─────────────────────┼─────────────────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │ Agent 6: CLI Main   │
+                    │ (after 2,3,4,5)     │
+                    └──────────┬──────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │ Agent 7: Polish     │
+                    │ (final)             │
+                    └─────────────────────┘
+```
+
+### 10.2 Agent Assignments
+
+| Agent | Focus | Packages/Files | Dependencies |
+|-------|-------|----------------|--------------|
+| **1** | Foundation | `go.mod`, directory scaffold, `internal/config/`, type definitions | None (runs first) |
+| **2** | LLM Backends | `internal/backend/backend.go`, `anthropic.go`, `openai.go`, `openrouter.go`, `backend_test.go` | Agent 1 |
+| **3** | Safety & Sanitization | `internal/safety/checker.go`, `patterns.go`, `checker_test.go`, `internal/sanitize/sanitize.go`, `sanitize_test.go` | Agent 1 |
+| **4** | Output System | `internal/output/output.go`, `clipboard.go`, `output_test.go` | Agent 1 |
+| **5** | Editor & Shell Context | `internal/editor/editor.go`, `editor_test.go`, `internal/shellctx/shellctx.go`, `shellctx_test.go` | Agent 1 |
+| **6** | CLI Orchestration | `cmd/qcmd/main.go`, `shell/qcmd.zsh`, end-to-end integration | Agents 2, 3, 4, 5 |
+| **7** | Polish | `Makefile`, `.github/workflows/ci.yml`, `README.md`, integration tests, final test coverage | Agent 6 |
+
+### 10.3 Execution Windows
+
+```
+Time ──────────────────────────────────────────────────────────────▶
+
+Window 1 (sequential):
+┌──────────────────────────────────────┐
+│           Agent 1: Foundation        │
+└──────────────────────────────────────┘
+
+Window 2 (parallel - 4 agents simultaneously):
+┌─────────────────┐ ┌─────────────────┐
+│ Agent 2:        │ │ Agent 3:        │
+│ Backends        │ │ Safety+Sanitize │
+└─────────────────┘ └─────────────────┘
+┌─────────────────┐ ┌─────────────────┐
+│ Agent 4:        │ │ Agent 5:        │
+│ Output          │ │ Editor+Shellctx │
+└─────────────────┘ └─────────────────┘
+
+Window 3 (sequential):
+┌──────────────────────────────────────┐
+│       Agent 6: CLI Orchestration     │
+└──────────────────────────────────────┘
+
+Window 4 (sequential):
+┌──────────────────────────────────────┐
+│           Agent 7: Polish            │
+└──────────────────────────────────────┘
+```
+
+### 10.4 Agent Specifications
+
+#### Agent 1: Foundation ✅ COMPLETE
+**Goal:** Establish project structure and shared types that all other agents depend on.
+
+**Deliverables:**
+- [x] ~~Initialize `go.mod` with module path and Go version~~
+- [x] ~~Create full directory structure (all `internal/` subdirs, `cmd/`, `shell/`, `testdata/`)~~
+- [x] ~~Implement `internal/config/config.go` with TOML loading, defaults, env overrides~~
+- [x] ~~Implement `internal/config/config_test.go`~~
+- [x] ~~Define shared types in `internal/backend/backend.go` (interface + Request/Response/ShellContext structs)~~
+- [x] ~~Create placeholder files for other packages (enables parallel agents to start)~~
+
+**Interface Contract (for downstream agents):**
+```go
+// internal/backend/backend.go - Agent 1 defines, Agent 2 implements
+type Backend interface {
+    GenerateCommand(ctx context.Context, request *Request) (*Response, error)
+    Name() string
+}
+```
+
+---
+
+#### Agent 2: LLM Backends ✅ COMPLETE
+**Goal:** Implement all three LLM provider clients.
+
+**Deliverables:**
+- [x] ~~`internal/backend/anthropic.go` - Anthropic Claude API client~~
+- [x] ~~`internal/backend/openai.go` - OpenAI API client~~
+- [x] ~~`internal/backend/openrouter.go` - OpenRouter API client~~
+- [x] ~~`internal/backend/backend_test.go` - Mock HTTP tests for all backends~~
+- [x] ~~Shared system prompt template~~
+- [x] ~~Timeout and error handling per spec~~
+
+**Key Requirements:**
+- All backends implement `Backend` interface from Agent 1
+- Use `context.Context` for cancellation/timeouts
+- Never log API keys
+- Return appropriate errors for timeout (exit code 2)
+
+---
+
+#### Agent 3: Safety & Sanitization ✅ COMPLETE
+**Goal:** Implement command safety checking and LLM output sanitization.
+
+**Deliverables:**
+- [x] ~~`internal/safety/patterns.go` - Pattern registry with all DANGER/CAUTION patterns~~
+- [x] ~~`internal/safety/checker.go` - Checker with normalization and nested command detection~~
+- [x] ~~`internal/safety/checker_test.go` - Comprehensive table-driven tests~~
+- [x] ~~`internal/sanitize/sanitize.go` - Markdown/backtick stripping, multi-line preservation~~
+- [x] ~~`internal/sanitize/sanitize_test.go` - Including error sentinel tests~~
+
+**Key Requirements:**
+- Nested command extraction (sudo, sh -c, bash -c, eval)
+- Zero false negatives on DANGER patterns
+- Preserve multi-line command structure in sanitizer
+
+---
+
+#### Agent 4: Output System ✅ COMPLETE
+**Goal:** Implement output routing and clipboard integration.
+
+**Deliverables:**
+- [x] ~~`internal/output/output.go` - Output mode router (ZLE, clipboard, print, auto)~~
+- [x] ~~`internal/output/clipboard.go` - Cross-platform clipboard (pbcopy, wl-copy, xclip, xsel)~~
+- [x] ~~`internal/output/output_test.go`~~
+
+**Key Requirements:**
+- Graceful fallback chain: clipboard → print
+- Detect missing clipboard tools without error spam
+- ZLE mode outputs raw command to stdout (no newline formatting)
+
+---
+
+#### Agent 5: Editor & Shell Context ✅ COMPLETE
+**Goal:** Implement editor invocation and shell context gathering.
+
+**Deliverables:**
+- [x] ~~`internal/editor/editor.go` - Temp file creation, $EDITOR/$VISUAL invocation~~
+- [x] ~~`internal/editor/editor_test.go`~~
+- [x] ~~`internal/shellctx/shellctx.go` - Gather pwd, shell type, OS~~
+- [x] ~~`internal/shellctx/shellctx_test.go`~~
+
+**Key Requirements:**
+- Handle editors with arguments (e.g., `EDITOR="code --wait"`)
+- Temp files with 0600 permissions, cleanup in defer
+- Comment stripping from editor input
+
+---
+
+#### Agent 6: CLI Orchestration ✅ COMPLETE
+**Goal:** Wire everything together into the main binary and shell wrapper.
+
+**Deliverables:**
+- [x] ~~`cmd/qcmd/main.go` - Full CLI with flag parsing, orchestration flow~~
+- [x] ~~`shell/qcmd.zsh` - Zsh function wrapper with ZLE integration~~
+- [x] ~~Input validation logic~~
+- [x] ~~Exit code handling (0, 1, 2, 3)~~
+- [x] ~~Stderr/stdout separation~~
+
+**Key Requirements:**
+- Import and orchestrate all `internal/` packages
+- Input precedence: --query-file > --query > editor
+- `config init` creates directory with 0700, file with 0600
+- Pass `--output=zle` from shell wrapper
+
+---
+
+#### Agent 7: Polish ✅ COMPLETE
+**Goal:** Production readiness - build system, CI/CD, documentation.
+
+**Deliverables:**
+- [x] ~~`Makefile` - build, build-all, test, test-coverage, lint, clean, install~~
+- [x] ~~`.github/workflows/ci.yml` - Test, lint, build matrix~~
+- [x] ~~`README.md` - Installation, usage, configuration, examples~~
+- [x] ~~Integration tests (build tag: integration)~~
+- [x] ~~Version injection via ldflags~~
+- [x] ~~Final test coverage review (aim for >80%)~~
+
+**Key Requirements:**
+- Cross-compile for darwin/linux, amd64/arm64
+- CI runs tests with `-race` flag
+- README includes shell integration instructions
+
+---
+
+### 10.5 Handoff Protocol
+
+1. **Agent 1 completes** → Creates GitHub issue or signal indicating foundation is ready
+2. **Agents 2-5 start in parallel** → Each works independently on assigned packages
+3. **Agents 2-5 complete** → All internal packages ready with tests passing
+4. **Agent 6 starts** → Integrates all packages, may surface integration issues
+5. **Agent 6 completes** → Working binary, shell wrapper functional
+6. **Agent 7 starts** → Polish, documentation, CI/CD
+
+### 10.6 Interface Contracts Summary
+
+These are defined by Agent 1 and must be respected by all downstream agents:
+
+```go
+// Backend interface (Agent 1 defines, Agent 2 implements)
+type Backend interface {
+    GenerateCommand(ctx context.Context, request *Request) (*Response, error)
+    Name() string
+}
+
+// Safety checker (Agent 3 implements, Agent 6 consumes)
+type CheckResult struct {
+    Level       DangerLevel
+    Pattern     string
+    Description string
+    Category    string
+}
+func (c *Checker) Check(cmd string) CheckResult
+
+// Sanitizer (Agent 3 implements, Agent 6 consumes)
+func Sanitize(raw string) string
+func CheckErrorSentinel(cmd string) (bool, string)
+
+// Output router (Agent 4 implements, Agent 6 consumes)
+func Output(cmd string, mode Mode, isDangerous bool) error
+
+// Editor (Agent 5 implements, Agent 6 consumes)
+func (e *Editor) GetInput(ctx context.Context) (string, error)
+
+// Shell context (Agent 5 implements, Agent 6 consumes)
+func GatherContext() *ShellContext
+```
 
 ---
 
