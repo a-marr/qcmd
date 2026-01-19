@@ -35,11 +35,6 @@ function q() {
 
     # Call qcmd binary with explicit ZLE output mode
     # stdout = command only, stderr = diagnostics (passed through to terminal)
-    cmd=$(qcmd --query-file "$query_file" --output=zle 2>&1 1>&3)
-    exit_code=$?
-    exec 3>&-
-
-    # Actually capture stdout properly - need to handle stderr separately
     cmd=$(qcmd --query-file "$query_file" --output=zle)
     exit_code=$?
 
