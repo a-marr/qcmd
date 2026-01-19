@@ -76,17 +76,24 @@ clean:
 	rm -rf $(BUILD_DIR)
 	$(GO) clean -cache -testcache
 
-# Install to ~/.local/bin
+# Install to ~/.local/bin and shell integration to ~/.config/qcmd
 install: build
 	@mkdir -p $(INSTALL_DIR)
+	@mkdir -p $(HOME)/.config/qcmd
 	cp $(BUILD_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)
+	cp shell/qcmd.zsh $(HOME)/.config/qcmd/qcmd.zsh
 	@echo "Installed $(BINARY) to $(INSTALL_DIR)/$(BINARY)"
-	@echo "Make sure $(INSTALL_DIR) is in your PATH"
+	@echo "Installed shell integration to $(HOME)/.config/qcmd/qcmd.zsh"
+	@echo ""
+	@echo "Add to your ~/.zshrc:"
+	@echo "  source ~/.config/qcmd/qcmd.zsh"
 
-# Uninstall from ~/.local/bin
+# Uninstall from ~/.local/bin and ~/.config/qcmd
 uninstall:
 	rm -f $(INSTALL_DIR)/$(BINARY)
+	rm -f $(HOME)/.config/qcmd/qcmd.zsh
 	@echo "Removed $(BINARY) from $(INSTALL_DIR)"
+	@echo "Removed shell integration from $(HOME)/.config/qcmd/"
 
 # Show help
 help:

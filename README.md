@@ -31,9 +31,10 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 ### 3. Add Shell Integration
 
+`make install` copies the shell integration to `~/.config/qcmd/qcmd.zsh`. Add to your `~/.zshrc`:
+
 ```bash
-# Add to ~/.zshrc
-source /path/to/qcmd/shell/qcmd.zsh
+source ~/.config/qcmd/qcmd.zsh
 ```
 
 ### 4. Use It
@@ -179,16 +180,10 @@ Environment variables override config file values:
 
 ### Shell Integration (Recommended)
 
-Add to your `~/.zshrc`:
+`make install` automatically copies the shell integration file. Add to your `~/.zshrc`:
 
 ```bash
 source ~/.config/qcmd/qcmd.zsh
-```
-
-Or copy the file there first:
-
-```bash
-cp shell/qcmd.zsh ~/.config/qcmd/
 ```
 
 Then use the `q` function:
