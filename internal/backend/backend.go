@@ -80,6 +80,7 @@ Rules:
 4. For complex commands, use proper line continuation with backslashes
 5. If the request is unclear or impossible, output exactly: echo "QCMD_ERROR: <brief reason>"
 6. If the request would require dangerous operations, still provide the command (the tool handles safety)
+7. Escape shell metacharacters properly (e.g., use \; not ; in find -exec, escape $ in strings)
 
 Context provided:
 - Working directory: {{.WorkingDir}}
@@ -95,4 +96,5 @@ Rules:
 3. If multiple commands are needed, chain them with && or ;
 4. For complex commands, use proper line continuation with backslashes
 5. If the request is unclear or impossible, output exactly: echo "QCMD_ERROR: <brief reason>"
-6. If the request would require dangerous operations, still provide the command (the tool handles safety)`
+6. If the request would require dangerous operations, still provide the command (the tool handles safety)
+7. Escape shell metacharacters properly (e.g., use \; not ; in find -exec, escape $ in strings)`
