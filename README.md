@@ -2,6 +2,8 @@
 
 A command-line tool that opens your editor, lets you describe what you want in natural language, and returns a ready-to-execute shell command via LLM.
 
+> **Note:** Currently only tested on Linux using Zsh.
+
 ## Features
 
 - **Natural language to shell commands**: Describe what you want, get a working command
