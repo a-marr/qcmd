@@ -60,7 +60,7 @@ qcmd --query "find files modified today" --output=print
 | `--output=print` | Print command (instead of clipboard) |
 | `--output=zle` | Output for shell wrapper (no newline) |
 | `--backend=openai` | Switch LLM provider |
-| `--model=gpt-4o` | Override model |
+| `--model=gpt-5o` | Override model |
 | `--verbose` | Show model and token info |
 | `--no-safety` | Disable safety checks |
 
